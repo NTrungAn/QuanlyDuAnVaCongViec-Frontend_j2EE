@@ -15,6 +15,7 @@ import {
   FolderKanban,
   CheckCircle2,
   AlertTriangle,
+  Plus,
 } from "lucide-react";
 import api from "../api/axiosConfig";
 
@@ -52,12 +53,65 @@ const ProjectDetailPage: React.FC = () => {
   const [isAddingMember, setIsAddingMember] = useState(false);
   const [addMemberError, setAddMemberError] = useState("");
 
+  // Tab state
+  const [activeTab, setActiveTab] = useState<"TASKS" | "SPRINTS" | "EPICS">(
+    "TASKS",
+  );
+
+  // Sprint states
+  const [sprints, setSprints] = useState<any[]>([]);
+  const [isSprintLoading, setIsSprintLoading] = useState(false);
+  const [isCreateSprintOpen, setIsCreateSprintOpen] = useState(false);
+  const [newSprint, setNewSprint] = useState({
+    name: "",
+    startDate: "",
+    endDate: "",
+  });
+
+  // Epic states
+  const [epics, setEpics] = useState<any[]>([]);
+  const [isEpicLoading, setIsEpicLoading] = useState(false);
+  const [isCreateEpicOpen, setIsCreateEpicOpen] = useState(false);
+  const [newEpic, setNewEpic] = useState({
+    name: "",
+    description: "",
+    startDate: "",
+    endDate: "",
+  });
+
+  // Task states
+  const [tasks, setTasks] = useState<any[]>([]);
+  const [isTaskLoading, setIsTaskLoading] = useState(false);
+  const [isCreateTaskOpen, setIsCreateTaskOpen] = useState(false);
+  const [newTask, setNewTask] = useState({
+    title: "",
+    description: "",
+    priority: "MEDIUM",
+    type: "TASK",
+    dueDate: "",
+    estimatedTime: 0,
+    epicId: "",
+  });
+
+  const [isUpdatingTask, setIsUpdatingTask] = useState(false);
+  const [editingTask, setEditingTask] = useState<any | null>(null);
+
+  const [assigningTask, setAssigningTask] = useState<any | null>(null);
+
+  // Sprint assignment state
+  const [sprintTaskToAssign, setSprintTaskToAssign] = useState<any | null>(
+    null,
+  );
+
   const navigate = useNavigate();
 
   const fetchProjectDetail = async () => {
     try {
       const response = await api.get(`/projects/${id}`);
       setProject(response.data.data);
+      fetchTasks();
+      fetchSprints();
+      fetchEpics();
     } catch (err: any) {
       setError("Không thể tải thông tin chi tiết dự án.");
     } finally {
@@ -65,9 +119,155 @@ const ProjectDetailPage: React.FC = () => {
     }
   };
 
+  const fetchTasks = async () => {
+    setIsTaskLoading(true);
+    try {
+      const response = await api.get(`/tasks/project/${id}`);
+      setTasks(response.data.data || []);
+    } catch (err: any) {
+      console.error("Không thể tải danh sách task");
+    } finally {
+      setIsTaskLoading(false);
+    }
+  };
+
+  const fetchSprints = async () => {
+    setIsSprintLoading(true);
+    try {
+      const response = await api.get(`/sprints/project/${id}`);
+      setSprints(response.data.data || []);
+    } catch (err: any) {
+      console.error("Không thể tải danh sách sprint");
+    } finally {
+      setIsSprintLoading(false);
+    }
+  };
+
+  const fetchEpics = async () => {
+    setIsEpicLoading(true);
+    try {
+      const response = await api.get(`/epics/project/${id}`);
+      setEpics(response.data.data || []);
+    } catch (err: any) {
+      console.error("Không thể tải danh sách epic");
+    } finally {
+      setIsEpicLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchProjectDetail();
   }, [id]);
+
+  const handleCreateSprint = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await api.post("/sprints", {
+        ...newSprint,
+        projectId: id,
+      });
+      setIsCreateSprintOpen(false);
+      setNewSprint({
+        name: "",
+        startDate: "",
+        endDate: "",
+      });
+      fetchSprints();
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.message || "Không thể tạo sprint.";
+      alert(errorMsg);
+    }
+  };
+
+  const handleCreateEpic = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await api.post("/epics", {
+        ...newEpic,
+        projectId: id,
+      });
+      setIsCreateEpicOpen(false);
+      setNewEpic({
+        name: "",
+        description: "",
+        startDate: "",
+        endDate: "",
+      });
+      fetchEpics();
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.message || "Không thể tạo epic.";
+      alert(errorMsg);
+    }
+  };
+
+  const handleCreateTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      // Ensure empty strings are sent as null for date and numeric fields
+      const taskData = {
+        ...newTask,
+        projectId: id,
+        dueDate: newTask.dueDate || null,
+        estimatedTime: newTask.estimatedTime || 0,
+        epicId: newTask.epicId || null,
+      };
+
+      await api.post("/tasks", taskData);
+      setIsCreateTaskOpen(false);
+      setNewTask({
+        title: "",
+        description: "",
+        priority: "MEDIUM",
+        type: "TASK",
+        dueDate: "",
+        estimatedTime: 0,
+        epicId: "",
+      });
+      fetchTasks();
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.message || "Không thể tạo task.";
+      alert(errorMsg);
+    }
+  };
+
+  const handleUpdateTask = async (taskId: string, updatedTask: any) => {
+    setIsUpdatingTask(true);
+    try {
+      await api.put(`/tasks/${taskId}`, updatedTask);
+      setEditingTask(null);
+      fetchTasks();
+    } catch (err: any) {
+      const errorMsg =
+        err.response?.data?.message || "Không thể cập nhật task.";
+      alert(errorMsg);
+    } finally {
+      setIsUpdatingTask(false);
+    }
+  };
+
+  const handleAssignTask = async (taskId: string, userId: string) => {
+    try {
+      await api.post("/tasks/assign", { taskId, userId });
+      setAssigningTask(null);
+      fetchTasks();
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.message || "Không thể giao việc.";
+      alert(errorMsg);
+    }
+  };
+
+  const handleAddTaskToSprint = async (sprintId: string, taskId: string) => {
+    try {
+      await api.post("/sprints/tasks", { sprintId, taskId });
+      setSprintTaskToAssign(null);
+      fetchTasks();
+      alert("Đã thêm task vào sprint thành công!");
+    } catch (err: any) {
+      const errorMsg =
+        err.response?.data?.message || "Không thể thêm task vào sprint.";
+      alert(errorMsg);
+    }
+  };
 
   const handleAddMember = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -170,6 +370,264 @@ const ProjectDetailPage: React.FC = () => {
             )}
           </div>
 
+          {/* Modal Chỉnh sửa Task */}
+          {editingTask && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200">
+                <div className="bg-yellow-600 p-6 text-white flex justify-between items-center">
+                  <h3 className="text-xl font-bold flex items-center gap-2">
+                    <FolderKanban size={24} />
+                    Chỉnh sửa công việc
+                  </h3>
+                  <button
+                    onClick={() => setEditingTask(null)}
+                    className="text-white hover:bg-yellow-700 p-1 rounded-lg transition-colors"
+                  >
+                    <Trash2 size={24} />
+                  </button>
+                </div>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    handleUpdateTask(editingTask.id, editingTask);
+                  }}
+                  className="p-6 space-y-6"
+                >
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">
+                      Tiêu đề Task *
+                    </label>
+                    <input
+                      required
+                      className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-yellow-500 outline-none"
+                      placeholder="Nhập tên công việc..."
+                      value={editingTask.title}
+                      onChange={(e) =>
+                        setEditingTask({
+                          ...editingTask,
+                          title: e.target.value,
+                        })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">
+                      Mô tả
+                    </label>
+                    <textarea
+                      rows={3}
+                      className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-yellow-500 outline-none resize-none"
+                      placeholder="Mô tả công việc này..."
+                      value={editingTask.description}
+                      onChange={(e) =>
+                        setEditingTask({
+                          ...editingTask,
+                          description: e.target.value,
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-2">
+                        Độ ưu tiên
+                      </label>
+                      <select
+                        className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-yellow-500 outline-none bg-white"
+                        value={editingTask.priority}
+                        onChange={(e) =>
+                          setEditingTask({
+                            ...editingTask,
+                            priority: e.target.value,
+                          })
+                        }
+                      >
+                        <option value="LOW">Thấp</option>
+                        <option value="MEDIUM">Trung bình</option>
+                        <option value="HIGH">Cao</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-2">
+                        Ngày hết hạn
+                      </label>
+                      <input
+                        type="date"
+                        className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-yellow-500 outline-none"
+                        value={
+                          editingTask.dueDate
+                            ? new Date(editingTask.dueDate)
+                                .toISOString()
+                                .split("T")[0]
+                            : ""
+                        }
+                        onChange={(e) =>
+                          setEditingTask({
+                            ...editingTask,
+                            dueDate: e.target.value,
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">
+                      Thời gian dự kiến (giờ)
+                    </label>
+                    <input
+                      type="number"
+                      className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-yellow-500 outline-none"
+                      placeholder="Nhập số giờ..."
+                      value={editingTask.estimatedTime}
+                      onChange={(e) =>
+                        setEditingTask({
+                          ...editingTask,
+                          estimatedTime: parseInt(e.target.value) || 0,
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="pt-4 flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setEditingTask(null)}
+                      className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-bold transition-colors"
+                    >
+                      Hủy
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isUpdatingTask}
+                      className="flex-1 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 font-bold shadow-md active:scale-95 transition-all disabled:bg-yellow-400"
+                    >
+                      {isUpdatingTask ? (
+                        <Loader2 className="animate-spin mx-auto" />
+                      ) : (
+                        "Lưu thay đổi"
+                      )}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Modal Giao việc */}
+          {assigningTask && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
+                <div className="bg-green-600 p-6 text-white flex justify-between items-center">
+                  <h3 className="text-xl font-bold flex items-center gap-2">
+                    <UserPlus size={24} />
+                    Giao việc cho thành viên
+                  </h3>
+                  <button
+                    onClick={() => setAssigningTask(null)}
+                    className="text-white hover:bg-green-700 p-1 rounded-lg transition-colors"
+                  >
+                    <Trash2 size={24} />
+                  </button>
+                </div>
+                <div className="p-6 space-y-4">
+                  <p className="text-gray-600">
+                    Chọn một thành viên để giao công việc{" "}
+                    <span className="font-bold">{assigningTask.title}</span>.
+                  </p>
+                  <div className="max-h-60 overflow-y-auto space-y-2">
+                    {project?.members.map((member) => (
+                      <div
+                        key={member.userId}
+                        onClick={() =>
+                          handleAssignTask(assigningTask.id, member.userId)
+                        }
+                        className="p-3 hover:bg-gray-100 rounded-lg cursor-pointer flex items-center gap-3"
+                      >
+                        <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center text-white font-bold shadow-sm">
+                          {member.fullName.charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                          <p className="font-bold text-gray-900">
+                            {member.fullName}
+                          </p>
+                          <p className="text-sm text-gray-500">
+                            {member.email}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modal Thêm vào Sprint */}
+          {sprintTaskToAssign && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
+                <div className="bg-blue-600 p-6 text-white flex justify-between items-center">
+                  <h3 className="text-xl font-bold flex items-center gap-2">
+                    <Clock size={24} />
+                    Thêm vào Sprint
+                  </h3>
+                  <button
+                    onClick={() => setSprintTaskToAssign(null)}
+                    className="text-white hover:bg-blue-700 p-1 rounded-lg transition-colors"
+                  >
+                    <Trash2 size={24} />
+                  </button>
+                </div>
+                <div className="p-6 space-y-4">
+                  <p className="text-gray-600">
+                    Chọn Sprint cho công việc{" "}
+                    <span className="font-bold">
+                      {sprintTaskToAssign.title}
+                    </span>
+                    .
+                  </p>
+                  <div className="max-h-60 overflow-y-auto space-y-2">
+                    {sprints.length === 0 ? (
+                      <p className="text-center text-gray-500 py-4 italic">
+                        Chưa có sprint nào. Hãy tạo sprint trước!
+                      </p>
+                    ) : (
+                      sprints.map((sprint) => (
+                        <div
+                          key={sprint.id}
+                          onClick={() =>
+                            handleAddTaskToSprint(
+                              sprint.id,
+                              sprintTaskToAssign.id,
+                            )
+                          }
+                          className="p-3 hover:bg-gray-100 rounded-lg cursor-pointer flex items-center gap-3"
+                        >
+                          <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center text-blue-600 font-bold shadow-sm">
+                            <Clock size={20} />
+                          </div>
+                          <div>
+                            <p className="font-bold text-gray-900">
+                              {sprint.name}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              {new Date(sprint.startDate).toLocaleDateString(
+                                "vi-VN",
+                              )}{" "}
+                              -{" "}
+                              {new Date(sprint.endDate).toLocaleDateString(
+                                "vi-VN",
+                              )}
+                            </p>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
             <div className="flex-1">
               <div className="flex items-center gap-4 mb-2">
@@ -215,20 +673,610 @@ const ProjectDetailPage: React.FC = () => {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Main Content Area - Place for Tasks, Timeline etc. later */}
+          {/* Main Content Area - Place for Tasks, Sprints, Epics */}
           <div className="lg:col-span-2 space-y-8">
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 h-full min-h-[400px] flex flex-col items-center justify-center text-center">
-              <div className="w-20 h-20 bg-blue-50 text-blue-400 rounded-full flex items-center justify-center mb-4">
-                <Layout size={40} />
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 min-h-[500px]">
+              {/* Tabs */}
+              <div className="flex border-b border-gray-100 mb-8">
+                <button
+                  onClick={() => setActiveTab("TASKS")}
+                  className={`px-6 py-3 font-bold text-sm transition-all border-b-2 ${
+                    activeTab === "TASKS"
+                      ? "text-blue-600 border-blue-600"
+                      : "text-gray-400 border-transparent hover:text-gray-600"
+                  }`}
+                >
+                  Công việc
+                </button>
+                <button
+                  onClick={() => setActiveTab("SPRINTS")}
+                  className={`px-6 py-3 font-bold text-sm transition-all border-b-2 ${
+                    activeTab === "SPRINTS"
+                      ? "text-blue-600 border-blue-600"
+                      : "text-gray-400 border-transparent hover:text-gray-600"
+                  }`}
+                >
+                  Sprints (Agile)
+                </button>
+                <button
+                  onClick={() => setActiveTab("EPICS")}
+                  className={`px-6 py-3 font-bold text-sm transition-all border-b-2 ${
+                    activeTab === "EPICS"
+                      ? "text-blue-600 border-blue-600"
+                      : "text-gray-400 border-transparent hover:text-gray-600"
+                  }`}
+                >
+                  Epics
+                </button>
               </div>
-              <h3 className="text-xl font-bold text-gray-900 mb-2">
-                Bảng công việc dự án
-              </h3>
-              <p className="text-gray-500">
-                Chức năng quản lý Task đang được phát triển.
-              </p>
+
+              {activeTab === "TASKS" && (
+                <>
+                  <div className="flex items-center justify-between mb-8">
+                    <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                      <Layout size={24} className="text-blue-600" />
+                      Danh sách công việc
+                    </h2>
+                    <button
+                      onClick={() => setIsCreateTaskOpen(true)}
+                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-md active:scale-95 text-sm font-medium"
+                    >
+                      <UserPlus size={18} />
+                      Thêm Task
+                    </button>
+                  </div>
+
+                  {isTaskLoading ? (
+                    <div className="flex flex-col items-center justify-center py-20 gap-4">
+                      <Loader2
+                        className="animate-spin text-blue-600"
+                        size={32}
+                      />
+                      <p className="text-gray-500 text-sm">
+                        Đang tải công việc...
+                      </p>
+                    </div>
+                  ) : tasks.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-20 text-center">
+                      <div className="w-16 h-16 bg-gray-50 text-gray-300 rounded-full flex items-center justify-center mb-4">
+                        <FolderKanban size={32} />
+                      </div>
+                      <h3 className="text-gray-900 font-bold">
+                        Chưa có công việc nào
+                      </h3>
+                      <p className="text-gray-500 text-sm mt-1 max-w-xs">
+                        Hãy bắt đầu bằng cách tạo công việc đầu tiên cho dự án
+                        này.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {tasks.map((task: any) => (
+                        <div
+                          key={task.id}
+                          className="group p-4 bg-white border border-gray-100 rounded-xl hover:border-blue-200 hover:shadow-md transition-all"
+                        >
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="flex-1">
+                              <h4 className="font-bold text-gray-900 group-hover:text-blue-600 transition-colors">
+                                {task.title}
+                              </h4>
+                              <p className="text-sm text-gray-500 line-clamp-1 mt-1">
+                                {task.description || "Không có mô tả"}
+                              </p>
+                            </div>
+                            <div className="flex flex-col items-end gap-2">
+                              <span
+                                className={`px-2 py-0.5 text-[10px] font-bold rounded-full border uppercase ${
+                                  task.priority === "HIGH"
+                                    ? "bg-red-50 text-red-600 border-red-100"
+                                    : task.priority === "MEDIUM"
+                                      ? "bg-yellow-50 text-yellow-600 border-yellow-100"
+                                      : "bg-green-50 text-green-600 border-green-100"
+                                }`}
+                              >
+                                {task.priority}
+                              </span>
+                              <span className="text-[11px] text-gray-400 font-medium flex items-center gap-1">
+                                <Calendar size={12} />
+                                {task.dueDate
+                                  ? new Date(task.dueDate).toLocaleDateString(
+                                      "vi-VN",
+                                    )
+                                  : "N/A"}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => setEditingTask(task)}
+                                className="text-xs font-bold text-yellow-600 hover:underline"
+                              >
+                                Chỉnh sửa
+                              </button>
+                              <button
+                                onClick={() => setAssigningTask(task)}
+                                className="text-xs font-bold text-green-600 hover:underline"
+                              >
+                                Giao việc
+                              </button>
+                              <button
+                                onClick={() => setSprintTaskToAssign(task)}
+                                className="text-xs font-bold text-blue-600 hover:underline"
+                              >
+                                Thêm vào Sprint
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {activeTab === "SPRINTS" && (
+                <>
+                  <div className="flex items-center justify-between mb-8">
+                    <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                      <Clock size={24} className="text-blue-600" />
+                      Danh sách Sprints
+                    </h2>
+                    <button
+                      onClick={() => setIsCreateSprintOpen(true)}
+                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-md active:scale-95 text-sm font-medium"
+                    >
+                      <Plus size={18} />
+                      Tạo Sprint
+                    </button>
+                  </div>
+
+                  {isSprintLoading ? (
+                    <div className="flex flex-col items-center justify-center py-20 gap-4">
+                      <Loader2
+                        className="animate-spin text-blue-600"
+                        size={32}
+                      />
+                      <p className="text-gray-500 text-sm">
+                        Đang tải sprints...
+                      </p>
+                    </div>
+                  ) : sprints.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-20 text-center">
+                      <div className="w-16 h-16 bg-gray-50 text-gray-300 rounded-full flex items-center justify-center mb-4">
+                        <Clock size={32} />
+                      </div>
+                      <h3 className="text-gray-900 font-bold">
+                        Chưa có Sprint nào
+                      </h3>
+                      <p className="text-gray-500 text-sm mt-1">
+                        Hãy tạo sprint mới để bắt đầu quy trình Agile.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {sprints.map((sprint: any) => (
+                        <div
+                          key={sprint.id}
+                          className="p-4 bg-gray-50 border border-gray-200 rounded-xl hover:border-blue-200 transition-all"
+                        >
+                          <div className="flex justify-between items-center">
+                            <div>
+                              <h4 className="font-bold text-gray-900">
+                                {sprint.name}
+                              </h4>
+                              <p className="text-xs text-gray-500 mt-1">
+                                {new Date(sprint.startDate).toLocaleDateString(
+                                  "vi-VN",
+                                )}{" "}
+                                -{" "}
+                                {new Date(sprint.endDate).toLocaleDateString(
+                                  "vi-VN",
+                                )}
+                              </p>
+                            </div>
+                            <span className="px-3 py-1 bg-blue-100 text-blue-600 text-xs font-bold rounded-full">
+                              Đang diễn ra
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {activeTab === "EPICS" && (
+                <>
+                  <div className="flex items-center justify-between mb-8">
+                    <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                      <Shield size={24} className="text-blue-600" />
+                      Danh sách Epics
+                    </h2>
+                    <button
+                      onClick={() => setIsCreateEpicOpen(true)}
+                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-md active:scale-95 text-sm font-medium"
+                    >
+                      <Plus size={18} />
+                      Tạo Epic
+                    </button>
+                  </div>
+
+                  {isEpicLoading ? (
+                    <div className="flex flex-col items-center justify-center py-20 gap-4">
+                      <Loader2
+                        className="animate-spin text-blue-600"
+                        size={32}
+                      />
+                      <p className="text-gray-500 text-sm">Đang tải epics...</p>
+                    </div>
+                  ) : epics.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-20 text-center">
+                      <div className="w-16 h-16 bg-gray-50 text-gray-300 rounded-full flex items-center justify-center mb-4">
+                        <Shield size={32} />
+                      </div>
+                      <h3 className="text-gray-900 font-bold">
+                        Chưa có Epic nào
+                      </h3>
+                      <p className="text-gray-500 text-sm mt-1">
+                        Epics giúp phân loại các cụm tính năng lớn.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {epics.map((epic: any) => (
+                        <div
+                          key={epic.id}
+                          className="p-4 bg-purple-50 border border-purple-100 rounded-xl hover:shadow-sm transition-all"
+                        >
+                          <h4 className="font-bold text-purple-900">
+                            {epic.name}
+                          </h4>
+                          <p className="text-sm text-purple-700 mt-1 line-clamp-2">
+                            {epic.description}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           </div>
+
+          {/* Modal Tạo Sprint mới */}
+          {isCreateSprintOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200">
+                <div className="bg-blue-600 p-6 text-white flex justify-between items-center">
+                  <h3 className="text-xl font-bold flex items-center gap-2">
+                    <Clock size={24} />
+                    Tạo Sprint mới
+                  </h3>
+                  <button
+                    onClick={() => setIsCreateSprintOpen(false)}
+                    className="text-white hover:bg-blue-700 p-1 rounded-lg transition-colors"
+                  >
+                    <Trash2 size={24} />
+                  </button>
+                </div>
+                <form onSubmit={handleCreateSprint} className="p-6 space-y-6">
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">
+                      Tên Sprint *
+                    </label>
+                    <input
+                      required
+                      className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none"
+                      placeholder="Ví dụ: Sprint 1 - Core Features"
+                      value={newSprint.name}
+                      onChange={(e) =>
+                        setNewSprint({ ...newSprint, name: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-2">
+                        Ngày bắt đầu
+                      </label>
+                      <input
+                        type="date"
+                        required
+                        className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none"
+                        value={newSprint.startDate}
+                        onChange={(e) =>
+                          setNewSprint({
+                            ...newSprint,
+                            startDate: e.target.value,
+                          })
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-2">
+                        Ngày kết thúc
+                      </label>
+                      <input
+                        type="date"
+                        required
+                        className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none"
+                        value={newSprint.endDate}
+                        onChange={(e) =>
+                          setNewSprint({
+                            ...newSprint,
+                            endDate: e.target.value,
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+                  <div className="pt-4 flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setIsCreateSprintOpen(false)}
+                      className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-bold transition-colors"
+                    >
+                      Hủy
+                    </button>
+                    <button
+                      type="submit"
+                      className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-bold shadow-md active:scale-95 transition-all"
+                    >
+                      Tạo Sprint
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Modal Tạo Epic mới */}
+          {isCreateEpicOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200">
+                <div className="bg-blue-600 p-6 text-white flex justify-between items-center">
+                  <h3 className="text-xl font-bold flex items-center gap-2">
+                    <Shield size={24} />
+                    Tạo Epic mới
+                  </h3>
+                  <button
+                    onClick={() => setIsCreateEpicOpen(false)}
+                    className="text-white hover:bg-blue-700 p-1 rounded-lg transition-colors"
+                  >
+                    <Trash2 size={24} />
+                  </button>
+                </div>
+                <form onSubmit={handleCreateEpic} className="p-6 space-y-6">
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">
+                      Tên Epic *
+                    </label>
+                    <input
+                      required
+                      className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none"
+                      placeholder="Ví dụ: Module Quản lý người dùng"
+                      value={newEpic.name}
+                      onChange={(e) =>
+                        setNewEpic({ ...newEpic, name: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">
+                      Mô tả
+                    </label>
+                    <textarea
+                      rows={3}
+                      className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none resize-none"
+                      placeholder="Mô tả mục tiêu của Epic này..."
+                      value={newEpic.description}
+                      onChange={(e) =>
+                        setNewEpic({ ...newEpic, description: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-2">
+                        Ngày bắt đầu
+                      </label>
+                      <input
+                        type="date"
+                        className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none"
+                        value={newEpic.startDate}
+                        onChange={(e) =>
+                          setNewEpic({ ...newEpic, startDate: e.target.value })
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-2">
+                        Ngày kết thúc
+                      </label>
+                      <input
+                        type="date"
+                        className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none"
+                        value={newEpic.endDate}
+                        onChange={(e) =>
+                          setNewEpic({ ...newEpic, endDate: e.target.value })
+                        }
+                      />
+                    </div>
+                  </div>
+                  <div className="pt-4 flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setIsCreateEpicOpen(false)}
+                      className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-bold transition-colors"
+                    >
+                      Hủy
+                    </button>
+                    <button
+                      type="submit"
+                      className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-bold shadow-md active:scale-95 transition-all"
+                    >
+                      Tạo Epic
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Modal Tạo Task mới */}
+          {isCreateTaskOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200">
+                <div className="bg-blue-600 p-6 text-white flex justify-between items-center">
+                  <h3 className="text-xl font-bold flex items-center gap-2">
+                    <FolderKanban size={24} />
+                    Tạo công việc mới
+                  </h3>
+                  <button
+                    onClick={() => setIsCreateTaskOpen(false)}
+                    className="text-white hover:bg-blue-700 p-1 rounded-lg transition-colors"
+                  >
+                    <Trash2 size={24} />
+                  </button>
+                </div>
+                <form onSubmit={handleCreateTask} className="p-6 space-y-6">
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">
+                      Tiêu đề Task *
+                    </label>
+                    <input
+                      required
+                      className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none"
+                      placeholder="Nhập tên công việc..."
+                      value={newTask.title}
+                      onChange={(e) =>
+                        setNewTask({ ...newTask, title: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">
+                      Mô tả
+                    </label>
+                    <textarea
+                      rows={3}
+                      className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none resize-none"
+                      placeholder="Mô tả công việc này..."
+                      value={newTask.description}
+                      onChange={(e) =>
+                        setNewTask({ ...newTask, description: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-2">
+                        Loại công việc
+                      </label>
+                      <select
+                        className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                        value={newTask.type}
+                        onChange={(e) =>
+                          setNewTask({ ...newTask, type: e.target.value })
+                        }
+                      >
+                        <option value="TASK">Công việc</option>
+                        <option value="BUG">Lỗi (Bug)</option>
+                        <option value="STORY">Câu chuyện (Story)</option>
+                        <option value="EPIC">Epic</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-2">
+                        Epic
+                      </label>
+                      <select
+                        className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                        value={newTask.epicId}
+                        onChange={(e) =>
+                          setNewTask({ ...newTask, epicId: e.target.value })
+                        }
+                      >
+                        <option value="">Không có Epic</option>
+                        {epics.map((epic) => (
+                          <option key={epic.id} value={epic.id}>
+                            {epic.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-2">
+                        Độ ưu tiên
+                      </label>
+                      <select
+                        className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                        value={newTask.priority}
+                        onChange={(e) =>
+                          setNewTask({ ...newTask, priority: e.target.value })
+                        }
+                      >
+                        <option value="LOW">Thấp</option>
+                        <option value="MEDIUM">Trung bình</option>
+                        <option value="HIGH">Cao</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-2">
+                        Ngày hết hạn
+                      </label>
+                      <input
+                        type="date"
+                        className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none"
+                        value={newTask.dueDate}
+                        onChange={(e) =>
+                          setNewTask({ ...newTask, dueDate: e.target.value })
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-2">
+                        Thời gian dự kiến (giờ)
+                      </label>
+                      <input
+                        type="number"
+                        className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none"
+                        placeholder="Nhập số giờ..."
+                        value={newTask.estimatedTime}
+                        onChange={(e) =>
+                          setNewTask({
+                            ...newTask,
+                            estimatedTime: parseInt(e.target.value) || 0,
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+                  <div className="pt-4 flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setIsCreateTaskOpen(false)}
+                      className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-bold transition-colors"
+                    >
+                      Hủy
+                    </button>
+                    <button
+                      type="submit"
+                      className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-bold shadow-md active:scale-95 transition-all"
+                    >
+                      Tạo Task
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
 
           {/* Sidebar - Member Management */}
           <div className="space-y-8">
