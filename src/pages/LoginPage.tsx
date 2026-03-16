@@ -22,11 +22,11 @@ const LoginPage: React.FC = () => {
       localStorage.setItem('accessToken', accessToken);
       localStorage.setItem('refreshToken', refreshToken);
       
-      navigate('/dashboard'); // Chuyển hướng sau khi đăng nhập thành công
+      navigate('/projects'); // Chuyển hướng sau khi đăng nhập thành công
     } catch (err: any) {
       setError(err.response?.data?.message || 'Đăng nhập thất bại. Vui lòng kiểm tra lại thông tin.');
     } finally {
-      setIsLoading(false);
+      setIsLoading(false);  
     }
   };
 

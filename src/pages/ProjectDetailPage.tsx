@@ -16,6 +16,8 @@ import {
   CheckCircle2,
   AlertTriangle,
   Plus,
+  Trello,
+  GripVertical,
 } from "lucide-react";
 import api from "../api/axiosConfig";
 
@@ -54,9 +56,15 @@ const ProjectDetailPage: React.FC = () => {
   const [addMemberError, setAddMemberError] = useState("");
 
   // Tab state
-  const [activeTab, setActiveTab] = useState<"TASKS" | "SPRINTS" | "EPICS">(
-    "TASKS",
-  );
+  const [activeTab, setActiveTab] = useState<
+    "TASKS" | "SPRINTS" | "EPICS" | "KANBAN"
+  >("TASKS");
+
+  // Kanban states
+  const [taskStatuses, setTaskStatuses] = useState<any[]>([]);
+  const [activeSprint, setActiveSprint] = useState<any | null>(null);
+  const [kanbanTasks, setKanbanTasks] = useState<any[]>([]);
+  const [isKanbanLoading, setIsKanbanLoading] = useState(false);
 
   // Sprint states
   const [sprints, setSprints] = useState<any[]>([]);
@@ -112,10 +120,58 @@ const ProjectDetailPage: React.FC = () => {
       fetchTasks();
       fetchSprints();
       fetchEpics();
+      fetchKanbanData();
     } catch (err: any) {
       setError("Không thể tải thông tin chi tiết dự án.");
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const fetchKanbanData = async () => {
+    try {
+      // 1. Fetch Task Statuses
+      const statusesRes = await api.get("/task-statuses");
+      setTaskStatuses(statusesRes.data.data || []);
+
+      // 2. Fetch Active Sprint
+      const activeSprintRes = await api.get(`/sprints/project/${id}/active`);
+      const currentActiveSprint = activeSprintRes.data.data;
+      setActiveSprint(currentActiveSprint);
+
+      // 3. Fetch Tasks if active sprint exists
+      if (currentActiveSprint) {
+        const tasksRes = await api.get(
+          `/sprints/${currentActiveSprint.id}/tasks`,
+        );
+        setKanbanTasks(tasksRes.data.data || []);
+      } else {
+        setKanbanTasks([]);
+      }
+    } catch (err: any) {
+      console.error("Lỗi khi tải dữ liệu Kanban:", err);
+    }
+  };
+
+  const handleTaskDrop = async (taskId: string, newStatusId: string) => {
+    try {
+      // Optimistic update
+      setKanbanTasks((prev) =>
+        prev.map((t) =>
+          t.id === taskId ? { ...t, statusId: newStatusId } : t,
+        ),
+      );
+
+      await api.put(`/tasks/${taskId}`, {
+        statusId: newStatusId,
+      });
+
+      // Refresh to ensure sync
+      fetchKanbanData();
+      fetchTasks();
+    } catch (err: any) {
+      alert("Không thể thay đổi trạng thái công việc.");
+      fetchKanbanData(); // Revert on error
     }
   };
 
@@ -158,6 +214,17 @@ const ProjectDetailPage: React.FC = () => {
   useEffect(() => {
     fetchProjectDetail();
   }, [id]);
+
+  const handleActivateSprint = async (sprintId: string) => {
+    try {
+      await api.post(`/sprints/${sprintId}/activate`);
+      fetchSprints();
+      fetchKanbanData();
+      alert("Đã kích hoạt sprint!");
+    } catch (err: any) {
+      alert("Không thể kích hoạt sprint.");
+    }
+  };
 
   const handleCreateSprint = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -708,6 +775,16 @@ const ProjectDetailPage: React.FC = () => {
                 >
                   Epics
                 </button>
+                <button
+                  onClick={() => setActiveTab("KANBAN")}
+                  className={`px-6 py-3 font-bold text-sm transition-all border-b-2 ${
+                    activeTab === "KANBAN"
+                      ? "text-blue-600 border-blue-600"
+                      : "text-gray-400 border-transparent hover:text-gray-600"
+                  }`}
+                >
+                  Bảng Kanban
+                </button>
               </div>
 
               {activeTab === "TASKS" && (
@@ -876,9 +953,26 @@ const ProjectDetailPage: React.FC = () => {
                                 )}
                               </p>
                             </div>
-                            <span className="px-3 py-1 bg-blue-100 text-blue-600 text-xs font-bold rounded-full">
-                              Đang diễn ra
-                            </span>
+                            <div className="flex items-center gap-3">
+                              {sprint.status === "ACTIVE" ? (
+                                <span className="px-3 py-1 bg-green-100 text-green-600 text-xs font-bold rounded-full">
+                                  Đang hoạt động
+                                </span>
+                              ) : sprint.status === "COMPLETED" ? (
+                                <span className="px-3 py-1 bg-gray-100 text-gray-600 text-xs font-bold rounded-full">
+                                  Đã hoàn thành
+                                </span>
+                              ) : (
+                                <button
+                                  onClick={() =>
+                                    handleActivateSprint(sprint.id)
+                                  }
+                                  className="px-3 py-1 bg-blue-600 text-white text-xs font-bold rounded-full hover:bg-blue-700 transition-colors"
+                                >
+                                  Kích hoạt
+                                </button>
+                              )}
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -941,6 +1035,119 @@ const ProjectDetailPage: React.FC = () => {
                     </div>
                   )}
                 </>
+              )}
+
+              {activeTab === "KANBAN" && (
+                <div className="space-y-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                      <Trello size={24} className="text-blue-600" />
+                      Bảng Kanban
+                      {activeSprint && (
+                        <span className="text-sm font-medium text-gray-500 bg-gray-100 px-3 py-1 rounded-full ml-2">
+                          Sprint: {activeSprint.name}
+                        </span>
+                      )}
+                    </h2>
+                  </div>
+
+                  {!activeSprint ? (
+                    <div className="flex flex-col items-center justify-center py-20 text-center bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200">
+                      <div className="w-16 h-16 bg-white text-gray-300 rounded-full flex items-center justify-center mb-4 shadow-sm">
+                        <Clock size={32} />
+                      </div>
+                      <h3 className="text-gray-900 font-bold">
+                        Chưa có Sprint nào đang hoạt động
+                      </h3>
+                      <p className="text-gray-500 text-sm mt-1 mb-6 max-w-xs">
+                        Vui lòng sang tab Sprints và kích hoạt một sprint để xem
+                        bảng Kanban.
+                      </p>
+                      <button
+                        onClick={() => setActiveTab("SPRINTS")}
+                        className="px-6 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition-all shadow-md active:scale-95"
+                      >
+                        Đến Tab Sprints
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex gap-6 overflow-x-auto pb-6 -mx-2 px-2 scrollbar-hide">
+                      {taskStatuses.map((status) => (
+                        <div
+                          key={status.id}
+                          className="flex-shrink-0 w-80 bg-gray-50/50 rounded-2xl p-4 border border-gray-100 flex flex-col min-h-[500px]"
+                          onDragOver={(e) => e.preventDefault()}
+                          onDrop={(e) => {
+                            const taskId = e.dataTransfer.getData("taskId");
+                            handleTaskDrop(taskId, status.id);
+                          }}
+                        >
+                          <div className="flex items-center justify-between mb-4 px-1">
+                            <h3 className="font-bold text-gray-700 flex items-center gap-2">
+                              {status.name}
+                              <span className="bg-white px-2 py-0.5 rounded-full text-xs text-gray-400 border border-gray-100 shadow-sm">
+                                {
+                                  kanbanTasks.filter(
+                                    (t) => t.statusId === status.id,
+                                  ).length
+                                }
+                              </span>
+                            </h3>
+                          </div>
+
+                          <div className="space-y-3 flex-1">
+                            {kanbanTasks
+                              .filter((task) => task.statusId === status.id)
+                              .map((task) => (
+                                <div
+                                  key={task.id}
+                                  draggable
+                                  onDragStart={(e) =>
+                                    e.dataTransfer.setData("taskId", task.id)
+                                  }
+                                  className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm hover:shadow-md hover:border-blue-200 transition-all cursor-grab active:cursor-grabbing group"
+                                >
+                                  <div className="flex items-start justify-between gap-3 mb-2">
+                                    <h4 className="font-bold text-sm text-gray-900 group-hover:text-blue-600 transition-colors">
+                                      {task.title}
+                                    </h4>
+                                    <GripVertical
+                                      size={14}
+                                      className="text-gray-300 group-hover:text-gray-400"
+                                    />
+                                  </div>
+                                  <p className="text-xs text-gray-500 line-clamp-2 mb-3">
+                                    {task.description || "Không có mô tả"}
+                                  </p>
+                                  <div className="flex items-center justify-between mt-auto">
+                                    <span
+                                      className={`px-2 py-0.5 text-[9px] font-bold rounded-full border uppercase ${
+                                        task.priority === "HIGH"
+                                          ? "bg-red-50 text-red-600 border-red-100"
+                                          : task.priority === "MEDIUM"
+                                            ? "bg-yellow-50 text-yellow-600 border-yellow-100"
+                                            : "bg-green-50 text-green-600 border-green-100"
+                                      }`}
+                                    >
+                                      {task.priority}
+                                    </span>
+                                    <div className="flex items-center gap-1 text-[10px] text-gray-400">
+                                      <Calendar size={10} />
+                                      {task.dueDate
+                                        ? new Date(
+                                            task.dueDate,
+                                          ).toLocaleDateString("vi-VN")
+                                        : "N/A"}
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           </div>
