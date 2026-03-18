@@ -106,12 +106,134 @@ const ProjectDetailPage: React.FC = () => {
 
   const [assigningTask, setAssigningTask] = useState<any | null>(null);
 
+  const [viewingTask, setViewingTask] = useState<any | null>(null);
+  const [taskComments, setTaskComments] = useState<any[]>([]);
+  const [taskActivityLogs, setTaskActivityLogs] = useState<any[]>([]);
+  const [isTimeTracking, setIsTimeTracking] = useState(false);
+  const [activeTimeTracking, setActiveTimeTracking] = useState<any | null>(
+    null,
+  );
+  const [newComment, setNewComment] = useState("");
+  const [isCommentLoading, setIsCommentLoading] = useState(false);
+  const [isAttachmentLoading, setIsAttachmentLoading] = useState(false);
+
   // Sprint assignment state
   const [sprintTaskToAssign, setSprintTaskToAssign] = useState<any | null>(
     null,
   );
 
   const navigate = useNavigate();
+
+  const fetchTaskDetails = async (task: any) => {
+    setViewingTask(task);
+    try {
+      // Fetch Comments
+      const commentsRes = await api.get(`/comments/task/${task.id}`);
+      setTaskComments(commentsRes.data.data || []);
+
+      // Fetch Activity Logs
+      const logsRes = await api.get(`/activity-logs/task/${task.id}`);
+      setTaskActivityLogs(logsRes.data.data || []);
+
+      // Fetch Active Time Tracking
+      const activeTrackingRes = await api.get(
+        `/time-tracking/active/task/${task.id}`,
+      );
+      if (activeTrackingRes.data.data) {
+        setActiveTimeTracking(activeTrackingRes.data.data);
+        setIsTimeTracking(true);
+      } else {
+        setActiveTimeTracking(null);
+        setIsTimeTracking(false);
+      }
+    } catch (err: any) {
+      console.error("Lỗi khi tải chi tiết task:", err);
+    }
+  };
+
+  const handleCreateComment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newComment.trim() || !viewingTask) return;
+
+    setIsCommentLoading(true);
+    try {
+      const response = await api.post("/comments", {
+        taskId: viewingTask.id,
+        content: newComment,
+      });
+      if (response.data.success) {
+        setTaskComments((prev) => [...prev, response.data.data]);
+        setNewComment("");
+      }
+    } catch (err: any) {
+      alert("Không thể gửi bình luận.");
+    } finally {
+      setIsCommentLoading(false);
+    }
+  };
+
+  const handleStartTimeTracking = async () => {
+    if (!viewingTask) return;
+    try {
+      const response = await api.post("/time-tracking/start", {
+        taskId: viewingTask.id,
+      });
+      if (response.data.success) {
+        setActiveTimeTracking(response.data.data);
+        setIsTimeTracking(true);
+        alert("Đã bắt đầu theo dõi thời gian.");
+      }
+    } catch (err: any) {
+      alert("Không thể bắt đầu theo dõi thời gian.");
+    }
+  };
+
+  const handleStopTimeTracking = async () => {
+    if (!viewingTask || !activeTimeTracking) return;
+    try {
+      const response = await api.post("/time-tracking/stop", {
+        timeTrackingId: activeTimeTracking.id,
+      });
+      if (response.data.success) {
+        setIsTimeTracking(false);
+        setActiveTimeTracking(null);
+        alert("Đã dừng theo dõi thời gian.");
+      }
+    } catch (err: any) {
+      alert("Không thể dừng theo dõi thời gian.");
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !viewingTask) return;
+
+    setIsAttachmentLoading(true);
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const response = await api.post(
+        `/attachments/${viewingTask.id}`,
+        formData,
+        {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        },
+      );
+      if (response.data.success) {
+        alert("Tải tệp lên thành công!");
+        // Re-fetch logs
+        const logsRes = await api.get(`/activity-logs/task/${viewingTask.id}`);
+        setTaskActivityLogs(logsRes.data.data || []);
+      }
+    } catch (err: any) {
+      alert("Không thể tải tệp lên.");
+    } finally {
+      setIsAttachmentLoading(false);
+    }
+  };
 
   const fetchProjectDetail = async () => {
     try {
@@ -695,6 +817,272 @@ const ProjectDetailPage: React.FC = () => {
             </div>
           )}
 
+          {/* Modal Xem chi tiết Task */}
+          {viewingTask && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden animate-in fade-in zoom-in duration-200 flex flex-col">
+                <div className="bg-blue-600 p-6 text-white flex justify-between items-center flex-shrink-0">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-white/20 rounded-lg">
+                      <FolderKanban size={24} />
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-bold">{viewingTask.title}</h3>
+                      <p className="text-sm text-blue-100 opacity-80">
+                        Chi tiết công việc
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setViewingTask(null)}
+                    className="text-white hover:bg-blue-700 p-2 rounded-lg transition-colors"
+                  >
+                    <Trash2 size={24} />
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-6">
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    {/* Left Column: Info, Time Tracking, Attachments */}
+                    <div className="lg:col-span-2 space-y-8">
+                      {/* Description */}
+                      <section>
+                        <h4 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-3">
+                          Mô tả
+                        </h4>
+                        <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 text-gray-700 whitespace-pre-wrap">
+                          {viewingTask.description ||
+                            "Không có mô tả chi tiết."}
+                        </div>
+                      </section>
+
+                      {/* Time Tracking Section */}
+                      <section className="bg-blue-50 p-6 rounded-2xl border border-blue-100">
+                        <div className="flex items-center justify-between mb-4">
+                          <h4 className="font-bold text-blue-900 flex items-center gap-2">
+                            <Clock size={20} /> Theo dõi thời gian
+                          </h4>
+                          {isTimeTracking ? (
+                            <button
+                              onClick={handleStopTimeTracking}
+                              className="px-4 py-2 bg-red-600 text-white rounded-lg font-bold text-sm hover:bg-red-700 shadow-md transition-all active:scale-95 flex items-center gap-2"
+                            >
+                              <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
+                              Dừng ghi giờ
+                            </button>
+                          ) : (
+                            <button
+                              onClick={handleStartTimeTracking}
+                              className="px-4 py-2 bg-blue-600 text-white rounded-lg font-bold text-sm hover:bg-blue-700 shadow-md transition-all active:scale-95 flex items-center gap-2"
+                            >
+                              <Clock size={16} /> Bắt đầu ghi giờ
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-4 text-sm">
+                          <div className="px-3 py-1 bg-white rounded-lg border border-blue-100">
+                            <span className="text-gray-500 mr-2">Dự kiến:</span>
+                            <span className="font-bold text-blue-700">
+                              {viewingTask.estimatedTime || 0} giờ
+                            </span>
+                          </div>
+                          {isTimeTracking && (
+                            <div className="text-blue-600 font-medium animate-pulse">
+                              Đang ghi nhận thời gian làm việc...
+                            </div>
+                          )}
+                        </div>
+                      </section>
+
+                      {/* Attachments Section */}
+                      <section>
+                        <h4 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-3">
+                          Tệp đính kèm
+                        </h4>
+                        <div className="flex items-center gap-4 p-4 border-2 border-dashed border-gray-200 rounded-xl bg-gray-50">
+                          <label className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-bold text-gray-700 cursor-pointer hover:bg-gray-50 transition-colors shadow-sm">
+                            <Plus size={18} />
+                            Tải tệp lên
+                            <input
+                              type="file"
+                              className="hidden"
+                              onChange={handleFileUpload}
+                              disabled={isAttachmentLoading}
+                            />
+                          </label>
+                          {isAttachmentLoading && (
+                            <Loader2
+                              className="animate-spin text-blue-600"
+                              size={20}
+                            />
+                          )}
+                          <p className="text-xs text-gray-400">
+                            Tối đa 10MB. Chấp nhận các định dạng phổ biến.
+                          </p>
+                        </div>
+                      </section>
+
+                      {/* Comments Section */}
+                      <section>
+                        <h4 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4">
+                          Thảo luận ({taskComments.length})
+                        </h4>
+                        <form onSubmit={handleCreateComment} className="mb-6">
+                          <textarea
+                            rows={3}
+                            className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none transition-all shadow-sm"
+                            placeholder="Viết bình luận của bạn..."
+                            value={newComment}
+                            onChange={(e) => setNewComment(e.target.value)}
+                          />
+                          <div className="flex justify-end mt-2">
+                            <button
+                              type="submit"
+                              disabled={isCommentLoading || !newComment.trim()}
+                              className="px-6 py-2 bg-blue-600 text-white rounded-lg font-bold text-sm hover:bg-blue-700 disabled:bg-gray-300 transition-all"
+                            >
+                              {isCommentLoading ? (
+                                <Loader2 className="animate-spin" size={18} />
+                              ) : (
+                                "Gửi bình luận"
+                              )}
+                            </button>
+                          </div>
+                        </form>
+
+                        <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">
+                          {taskComments.length === 0 ? (
+                            <p className="text-center text-gray-400 py-8 italic text-sm">
+                              Chưa có bình luận nào.
+                            </p>
+                          ) : (
+                            taskComments.map((comment) => (
+                              <div key={comment.id} className="flex gap-3">
+                                <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-xs flex-shrink-0 overflow-hidden">
+                                  {comment.user?.avatarUrl ? (
+                                    <img
+                                      src={comment.user.avatarUrl}
+                                      alt={comment.user.fullName}
+                                      className="w-full h-full object-cover"
+                                    />
+                                  ) : (
+                                    comment.user?.fullName?.charAt(0) || "U"
+                                  )}
+                                </div>
+                                <div className="bg-gray-50 p-3 rounded-2xl flex-1 border border-gray-100">
+                                  <div className="flex justify-between items-center mb-1">
+                                    <span className="font-bold text-xs text-gray-900">
+                                      {comment.user?.fullName || "Người dùng"}
+                                    </span>
+                                    <span className="text-[10px] text-gray-400">
+                                      {new Date(
+                                        comment.createdAt,
+                                      ).toLocaleString("vi-VN")}
+                                    </span>
+                                  </div>
+                                  <p className="text-sm text-gray-700">
+                                    {comment.content}
+                                  </p>
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </section>
+                    </div>
+
+                    {/* Right Column: Meta Info & Activity Logs */}
+                    <div className="space-y-8">
+                      <section className="bg-gray-50 p-6 rounded-2xl border border-gray-100">
+                        <h4 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">
+                          Thông tin bổ sung
+                        </h4>
+                        <div className="space-y-4">
+                          <div className="flex justify-between items-center">
+                            <span className="text-sm text-gray-500">
+                              Độ ưu tiên
+                            </span>
+                            <span
+                              className={`px-2 py-1 text-[10px] font-bold rounded-full border uppercase ${
+                                viewingTask.priority === "HIGH"
+                                  ? "bg-red-50 text-red-600 border-red-100"
+                                  : viewingTask.priority === "MEDIUM"
+                                    ? "bg-yellow-50 text-yellow-600 border-yellow-100"
+                                    : "bg-green-50 text-green-600 border-green-100"
+                              }`}
+                            >
+                              {viewingTask.priority}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-sm text-gray-500">
+                              Trạng thái
+                            </span>
+                            <span className="text-sm font-bold text-gray-900">
+                              {viewingTask.statusName || "Chưa rõ"}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-sm text-gray-500">
+                              Ngày hạn
+                            </span>
+                            <span className="text-sm font-bold text-gray-900">
+                              {viewingTask.dueDate
+                                ? new Date(
+                                    viewingTask.dueDate,
+                                  ).toLocaleDateString("vi-VN")
+                                : "N/A"}
+                            </span>
+                          </div>
+                        </div>
+                      </section>
+
+                      <section>
+                        <h4 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4">
+                          Nhật ký hoạt động
+                        </h4>
+                        <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2">
+                          {taskActivityLogs.length === 0 ? (
+                            <p className="text-xs text-gray-400 italic">
+                              Chưa có hoạt động nào.
+                            </p>
+                          ) : (
+                            taskActivityLogs.map((log) => {
+                              const dateStr = log.timestamp
+                                ? new Date(log.timestamp).toLocaleString(
+                                    "vi-VN",
+                                  )
+                                : "N/A";
+                              return (
+                                <div
+                                  key={log.id}
+                                  className="relative pl-6 pb-4 border-l-2 border-gray-100 last:pb-0"
+                                >
+                                  <div className="absolute left-[-9px] top-0 w-4 h-4 rounded-full bg-blue-100 border-2 border-white flex items-center justify-center">
+                                    <div className="w-1.5 h-1.5 bg-blue-500 rounded-full"></div>
+                                  </div>
+                                  <div className="text-xs text-gray-400 mb-1">
+                                    {dateStr}
+                                  </div>
+                                  <p className="text-xs text-gray-700 leading-relaxed">
+                                    <span className="font-bold">
+                                      {log.userName || "Hệ thống"}
+                                    </span>{" "}
+                                    {log.action}
+                                  </p>
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+                      </section>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
             <div className="flex-1">
               <div className="flex items-center gap-4 mb-2">
@@ -866,6 +1254,12 @@ const ProjectDetailPage: React.FC = () => {
                           </div>
                           <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between">
                             <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => fetchTaskDetails(task)}
+                                className="text-xs font-bold text-blue-600 hover:underline bg-blue-50 px-2 py-1 rounded"
+                              >
+                                Xem chi tiết
+                              </button>
                               <button
                                 onClick={() => setEditingTask(task)}
                                 className="text-xs font-bold text-yellow-600 hover:underline"
@@ -1108,7 +1502,10 @@ const ProjectDetailPage: React.FC = () => {
                                   className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm hover:shadow-md hover:border-blue-200 transition-all cursor-grab active:cursor-grabbing group"
                                 >
                                   <div className="flex items-start justify-between gap-3 mb-2">
-                                    <h4 className="font-bold text-sm text-gray-900 group-hover:text-blue-600 transition-colors">
+                                    <h4
+                                      className="font-bold text-sm text-gray-900 group-hover:text-blue-600 transition-colors cursor-pointer"
+                                      onClick={() => fetchTaskDetails(task)}
+                                    >
                                       {task.title}
                                     </h4>
                                     <GripVertical
